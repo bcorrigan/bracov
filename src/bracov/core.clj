@@ -2,38 +2,19 @@
   (:gen-class)
   (:require [clojure.xml :refer [parse]]
             [clojure.java.io :refer [input-stream]]
-            [clojure.zip :refer [xml-zip]]
             [clojure.java.shell :refer [sh]]
             [clojure.string :refer [split-lines,starts-with?,replace,split]]))
 
 ;; this is hideous but it stops java puking on non-existent DTDs
 (defn startparse-sax-non-validating [s ch]
   (.. (doto (. javax.xml.parsers.SAXParserFactory (newInstance))
-       (.setValidating false)
-       (.setFeature "http://apache.org/xml/features/nonvalidating/load-dtd-grammar" false)
-       (.setFeature "http://apache.org/xml/features/nonvalidating/load-external-dtd" false)
-       (.setFeature "http://xml.org/sax/features/validation" false)
-       (.setFeature "http://xml.org/sax/features/external-general-entities" false)
-       (.setFeature "http://xml.org/sax/features/external-parameter-entities" false))
-
+       (.setFeature "http://apache.org/xml/features/nonvalidating/load-external-dtd" false))
        (newSAXParser) (parse s ch)))
 
 ;; Git output is parsed into this
 (defrecord loc [file nr])
 ;; we parse jacoco xml into this
 (defrecord line [loc missed covered])
-
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
-  (let [proj-root (first args)]
-    (with-open [xin (input-stream (str (first args) "/target/site/jacoco/jacoco.xml"))]
-      (let [packages (filter-xml (parse xin startparse-sax-non-validating) :package)
-            git-lines (parse-git (git-lines proj-root)) ]
-        (as-> (lines packages) lines
-          (filter-lines lines git-lines)
-          (cov-sum lines)
-          (println (cov% lines)))))))
 
 ;From an XML sub-object filters out only the supplied <tag> blocks
 (defn filter-xml [xml tag]
@@ -55,13 +36,10 @@
             (read-string (get-attr line :mi))
             (read-string (get-attr line :ci)))))
 
-;; test stuff
-(-main "z:/workspace/test")
-
 ;; Capture output from git diff
 (defn git-lines [proj-root]
   (sh "git" "diff" "--staged" "-U0" "src/main/java/" :dir proj-root))
-;;to parse the output from git diff -U0:
+
 ;;First, obtain filename by looking for line beginning with 'diff'
 ;;Second, for line numbers look for the 3rd field in lines beginning @@
 ;; eg: @@ -7 +7,3 @@ package test;
@@ -107,3 +85,17 @@
                (/ covered
                   (+ covered
                      missed))))))
+
+(defn -main
+  [& args]
+  (let [proj-root (first args)]
+    (with-open [xin (input-stream (str proj-root "/target/site/jacoco/jacoco.xml"))]
+      (let [packages (filter-xml (parse xin startparse-sax-non-validating) :package)
+            git-lines (parse-git (git-lines proj-root)) ]
+        (as-> (lines packages) lines
+          (filter-lines lines git-lines)
+          (cov-sum lines)
+          (println (cov% lines)))))))
+
+;; test stuff
+;(-main "/home/bc/z/workspace/test")
